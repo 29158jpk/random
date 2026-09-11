@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { verifyAuthToken } from "@/lib/supabase/server";
+import { verifyActiveUser } from "@/lib/supabase/server";
 import { generateRandomBuild } from "@/lib/randomEngine";
+import { getActiveHardwarePool } from "@/lib/hardwareService";
 import { UserPreferences } from "@/types/hardware";
 import { createClient } from "@supabase/supabase-js";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
@@ -8,15 +9,18 @@ import { isSupabaseConfigured } from "@/lib/supabase/client";
 export async function POST(req: NextRequest) {
   try {
     const authHeader = req.headers.get("Authorization");
-    const { user, error: authError } = await verifyAuthToken(authHeader);
+    const { user, profile, error: authError } = await verifyActiveUser(authHeader);
 
     if (authError || !user) {
+      const isSuspended = authError?.includes("suspended");
       return NextResponse.json(
         {
-          error: "Authentication required",
-          message: "คุณต้องเข้าสู่ระบบก่อนจึงจะสามารถสุ่ม PC ได้",
+          error: isSuspended ? "Account suspended" : "Authentication required",
+          message: isSuspended
+            ? "Your account has been suspended. บัญชีของคุณถูกระงับการใช้งาน"
+            : "คุณต้องเข้าสู่ระบบก่อนจึงจะสามารถสุ่ม PC ได้",
         },
-        { status: 401 }
+        { status: isSuspended ? 403 : 401 }
       );
     }
 
@@ -33,10 +37,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Run Server-Side Random Engine
-    const build = generateRandomBuild(preferences, variant);
+    // 1. Fetch active hardware pool from database
+    const activePool = await getActiveHardwarePool();
 
-    // If Supabase is fully configured, optionally record to user_builds
+    // 2. Run Server-Side Random Engine with active hardware pool
+    const build = generateRandomBuild(preferences, variant, activePool);
+
+    // 3. If Supabase is fully configured, record to user_builds and member_activities
     if (isSupabaseConfigured()) {
       try {
         const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -68,8 +75,21 @@ export async function POST(req: NextRequest) {
           estimated_fps: build.estimatedFps,
           is_saved: false,
         });
+
+        // Record member activity
+        await serverClient.from("member_activities").insert({
+          user_id: user.id,
+          activity_type: "random_pc",
+          description: `${profile?.username || user.email.split("@")[0]} generated a ${build.rarity} build: ${build.name} (฿${build.totalPrice.toLocaleString()})`,
+          metadata: {
+            buildId: build.id,
+            rarity: build.rarity,
+            luckScore: build.luckScore,
+            totalPrice: build.totalPrice,
+          },
+        });
       } catch (dbError) {
-        console.warn("Could not insert build into Supabase:", dbError);
+        console.warn("Could not insert build or activity into Supabase:", dbError);
       }
     }
 

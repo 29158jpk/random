@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import Link from "next/link";
 import {
   Dices,
   Volume2,
@@ -15,6 +16,7 @@ import {
   User,
   ChevronDown,
   ShieldCheck,
+  Settings,
 } from "lucide-react";
 import { getSoundMuted, setSoundMuted, playClickSound } from "@/lib/soundEffects";
 import { useAuth } from "@/contexts/AuthContext";
@@ -34,7 +36,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   savedCount,
   historyCount,
 }) => {
-  const { user, isAuthenticated, signOut, openAuthModal } = useAuth();
+  const { user, isAuthenticated, isAdmin, signOut, openAuthModal } = useAuth();
   const [muted, setMuted] = useState(false);
   const [currentTheme, setCurrentTheme] = useState("dark");
   const [themeDropdownOpen, setThemeDropdownOpen] = useState(false);
@@ -269,6 +271,39 @@ export const Navbar: React.FC<NavbarProps> = ({
                     <Trophy className="w-4 h-4 text-amber-400" />
                     <span>Daily Challenge</span>
                   </button>
+
+                  {/* Profile */}
+                  <Link
+                    href="/profile"
+                    onClick={() => {
+                      playClickSound();
+                      setUserDropdownOpen(false);
+                    }}
+                    className="w-full flex items-center gap-2 px-3.5 py-2 text-xs text-slate-300 hover:text-white hover:bg-white/5 transition-colors"
+                  >
+                    <User className="w-4 h-4 text-sky-400" />
+                    <span>My Profile</span>
+                  </Link>
+
+                  {/* Admin Dashboard link (Admin only) */}
+                  {isAdmin && (
+                    <Link
+                      href="/admin"
+                      onClick={() => {
+                        playClickSound();
+                        setUserDropdownOpen(false);
+                      }}
+                      className="w-full flex items-center justify-between px-3.5 py-2 text-xs text-purple-300 hover:text-white bg-purple-500/10 hover:bg-purple-500/20 rounded-xl transition-all my-1 border border-purple-500/30"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Settings className="w-4 h-4 text-purple-400" />
+                        <span className="font-bold">⚙️ Admin Dashboard</span>
+                      </div>
+                      <span className="px-1.5 py-0.2 rounded text-[9px] font-black uppercase bg-purple-500/30 text-purple-200">
+                        ADMIN
+                      </span>
+                    </Link>
+                  )}
 
                   <div className="my-1 border-t border-white/10" />
 

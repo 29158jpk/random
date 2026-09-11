@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { Providers } from "@/components/Providers";
 
 export const metadata: Metadata = {
   title: "Horizon Auto PC | Spin Your PC. Find Your Build.",
@@ -45,7 +46,7 @@ export default function RootLayout({
         />
       </head>
       <body className="antialiased min-h-screen selection:bg-sky-500 selection:text-slate-950">
-        {children}
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

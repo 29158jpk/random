@@ -29,6 +29,8 @@ export interface HardwareItem {
   caseStyle?: CaseStyle;
   specs: string;
   badge?: string;
+  image_url?: string;
+  status?: "active" | "disabled";
 }
 
 export type UsageType =

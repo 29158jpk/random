@@ -1,12 +1,18 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import { User, Session, AuthError } from "@supabase/supabase-js";
 import { supabase, isSupabaseConfigured } from "@/lib/supabase/client";
+import { UserProfile, UserRole, UserStatus } from "@/types/admin";
 
 interface AuthContextType {
   user: User | null;
   session: Session | null;
+  profile: UserProfile | null;
+  role: UserRole;
+  status: UserStatus;
+  isAdmin: boolean;
+  isSuspended: boolean;
   loading: boolean;
   isAuthenticated: boolean;
   isConfigured: boolean;
@@ -17,6 +23,7 @@ interface AuthContextType {
     username?: string
   ) => Promise<{ error: AuthError | Error | null; user: User | null }>;
   signOut: () => Promise<void>;
+  refreshProfile: () => Promise<void>;
   isAuthModalOpen: boolean;
   authModalMode: "login" | "register";
   openAuthModal: (mode?: "login" | "register") => void;
@@ -43,16 +50,112 @@ interface StoredLocalUser {
   email: string;
   passwordHash: string;
   username: string;
+  role?: UserRole;
+  status?: UserStatus;
   created_at: string;
+  last_active?: string;
 }
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
   const [authModalMode, setAuthModalMode] = useState<"login" | "register">("login");
   const isConfigured = isSupabaseConfigured();
+
+  const fetchProfile = useCallback(
+    async (targetUser: User | null) => {
+      if (!targetUser) {
+        setProfile(null);
+        return;
+      }
+
+      const email = targetUser.email || "";
+      const username =
+        (targetUser.user_metadata?.username as string) || email.split("@")[0] || "Member";
+
+      if (isConfigured) {
+        try {
+          const { data, error } = await supabase
+            .from("profiles")
+            .select("*")
+            .eq("id", targetUser.id)
+            .maybeSingle();
+
+          if (!error && data) {
+            setProfile(data as UserProfile);
+            return;
+          }
+
+          // If profile does not exist yet, create default
+          const newProfile: UserProfile = {
+            id: targetUser.id,
+            username,
+            email,
+            avatar_url: null,
+            role: "user",
+            status: "active",
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            last_active: new Date().toISOString(),
+          };
+
+          await supabase.from("profiles").upsert(newProfile);
+          setProfile(newProfile);
+          return;
+        } catch (err) {
+          console.warn("Error fetching Supabase profile:", err);
+        }
+      }
+
+      // Local Cryptographic Engine Fallback
+      try {
+        const usersStr = localStorage.getItem("horizon_local_users") || "[]";
+        const users: StoredLocalUser[] = JSON.parse(usersStr);
+        const found = users.find((u) => u.id === targetUser.id || u.email.toLowerCase() === email.toLowerCase());
+
+        const isAdmin =
+          found?.role === "admin" ||
+          email.toLowerCase() === "admin@horizonpc.local" ||
+          email.toLowerCase().startsWith("admin");
+
+        const localProfile: UserProfile = {
+          id: targetUser.id,
+          username: found?.username || username,
+          email,
+          avatar_url: null,
+          role: isAdmin ? "admin" : "user",
+          status: found?.status || "active",
+          created_at: found?.created_at || targetUser.created_at || new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          last_active: new Date().toISOString(),
+        };
+
+        setProfile(localProfile);
+      } catch {
+        setProfile({
+          id: targetUser.id,
+          username,
+          email,
+          avatar_url: null,
+          role: "user",
+          status: "active",
+          created_at: targetUser.created_at || new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          last_active: new Date().toISOString(),
+        });
+      }
+    },
+    [isConfigured]
+  );
+
+  const refreshProfile = useCallback(async () => {
+    if (user) {
+      await fetchProfile(user);
+    }
+  }, [user, fetchProfile]);
 
   useEffect(() => {
     let mounted = true;
@@ -64,15 +167,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (mounted && !error && data.session) {
             setSession(data.session);
             setUser(data.session.user);
+            await fetchProfile(data.session.user);
           }
         } else {
-          // Local cryptographic session restore
+          // Local session restore
           const savedSessionStr = localStorage.getItem("horizon_local_session");
           if (savedSessionStr) {
             const parsed = JSON.parse(savedSessionStr);
             if (mounted && parsed.user) {
               setSession(parsed);
               setUser(parsed.user);
+              await fetchProfile(parsed.user);
             }
           }
         }
@@ -89,10 +194,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (isConfigured) {
       const {
         data: { subscription },
-      } = supabase.auth.onAuthStateChange((_event, newSession) => {
+      } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
         if (!mounted) return;
         setSession(newSession);
         setUser(newSession?.user || null);
+        if (newSession?.user) {
+          await fetchProfile(newSession.user);
+        } else {
+          setProfile(null);
+        }
         setLoading(false);
       });
 
@@ -101,7 +211,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         subscription.unsubscribe();
       };
     }
-  }, [isConfigured]);
+  }, [isConfigured, fetchProfile]);
 
   const signIn = async (email: string, password: string) => {
     const cleanEmail = email.trim().toLowerCase();
@@ -116,6 +226,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (!error && data.session) {
         setSession(data.session);
         setUser(data.session.user);
+        await fetchProfile(data.session.user);
       }
       return { error };
     }
@@ -124,6 +235,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const usersStr = localStorage.getItem("horizon_local_users") || "[]";
       const users: StoredLocalUser[] = JSON.parse(usersStr);
+
+      // Seed default admin account if not existing
+      if (!users.some((u) => u.email === "admin@horizonpc.local")) {
+        const adminHash = await hashPassword("admin123456");
+        users.push({
+          id: "admin-default-id",
+          email: "admin@horizonpc.local",
+          username: "Horizon Admin",
+          passwordHash: adminHash,
+          role: "admin",
+          status: "active",
+          created_at: new Date().toISOString(),
+        });
+        localStorage.setItem("horizon_local_users", JSON.stringify(users));
+      }
 
       const targetUser = users.find((u) => u.email === cleanEmail);
       if (!targetUser) {
@@ -153,8 +279,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updated_at: new Date().toISOString(),
       };
 
+      const isAdmin = targetUser.role === "admin" || targetUser.email === "admin@horizonpc.local";
+      const tokenPrefix = isAdmin ? "horizon_admin_token" : "horizon_token";
       const localSession: Session = {
-        access_token: `horizon_token_${targetUser.id}_${Date.now()}`,
+        access_token: `${tokenPrefix}_${targetUser.id}_${Date.now()}`,
         refresh_token: `horizon_refresh_${targetUser.id}`,
         expires_in: 3600 * 24 * 7,
         expires_at: Math.floor(Date.now() / 1000) + 3600 * 24 * 7,
@@ -165,6 +293,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       localStorage.setItem("horizon_local_session", JSON.stringify(localSession));
       setSession(localSession);
       setUser(localUser);
+      await fetchProfile(localUser);
 
       return { error: null };
     } catch {
@@ -191,6 +320,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (!error && data.session) {
         setSession(data.session);
         setUser(data.session.user);
+        await fetchProfile(data.session.user);
       }
       return { error, user: data.user };
     }
@@ -218,6 +348,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         email: cleanEmail,
         passwordHash: pHash,
         username: cleanUsername,
+        role: "user",
+        status: "active",
         created_at: new Date().toISOString(),
       };
 
@@ -250,6 +382,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       localStorage.setItem("horizon_local_session", JSON.stringify(localSession));
       setSession(localSession);
       setUser(localUser);
+      await fetchProfile(localUser);
 
       return { error: null, user: localUser };
     } catch {
@@ -268,6 +401,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.removeItem("horizon_local_session");
     setSession(null);
     setUser(null);
+    setProfile(null);
   };
 
   const openAuthModal = (mode: "login" | "register" = "login") => {
@@ -279,17 +413,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsAuthModalOpen(false);
   };
 
+  const role: UserRole = profile?.role || "user";
+  const status: UserStatus = profile?.status || "active";
+  const isAdmin: boolean = role === "admin";
+  const isSuspended: boolean = status === "suspended";
+
   return (
     <AuthContext.Provider
       value={{
         user,
         session,
+        profile,
+        role,
+        status,
+        isAdmin,
+        isSuspended,
         loading,
         isAuthenticated: Boolean(user),
         isConfigured,
         signIn,
         signUp,
         signOut,
+        refreshProfile,
         isAuthModalOpen,
         authModalMode,
         openAuthModal,

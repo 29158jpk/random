@@ -3,6 +3,7 @@ import {
   PCBuild,
   UserPreferences,
   RandomMode,
+  ComponentCategory,
 } from "@/types/hardware";
 import {
   CPU_DATABASE,
@@ -14,6 +15,7 @@ import {
   COOLER_DATABASE,
   CASE_DATABASE,
 } from "@/data/hardware";
+import { getLocalActiveHardwarePool } from "./hardwareService";
 import { checkCompatibility, repairIncompatibleParts } from "./compatibilityEngine";
 import { evaluateBuild } from "./luckAndRarity";
 import { estimateGameFps } from "./fpsEstimator";
@@ -54,10 +56,22 @@ function pickRandom<T>(items: T[]): T {
  */
 export function generateRandomBuild(
   preferences: UserPreferences,
-  variant: "normal" | "better" | "cheaper" = "normal"
+  variant: "normal" | "better" | "cheaper" = "normal",
+  hardwarePool?: Record<ComponentCategory, HardwareItem[]>
 ): PCBuild {
   const { budget, cpuBrand, gpuBrand, ramSize, storageSize, caseStyle, mode, usage, resolution, selectedGames } =
     preferences;
+
+  // Retrieve active hardware pool (from admin management) or fallback to defaults
+  const pool = hardwarePool || getLocalActiveHardwarePool();
+  const cpus = pool.cpu?.length ? pool.cpu : CPU_DATABASE;
+  const gpus = pool.gpu?.length ? pool.gpu : GPU_DATABASE;
+  const motherboards = pool.motherboard?.length ? pool.motherboard : MOTHERBOARD_DATABASE;
+  const rams = pool.ram?.length ? pool.ram : RAM_DATABASE;
+  const storages = pool.storage?.length ? pool.storage : STORAGE_DATABASE;
+  const psus = pool.psu?.length ? pool.psu : PSU_DATABASE;
+  const coolers = pool.cooler?.length ? pool.cooler : COOLER_DATABASE;
+  const cases = pool.case?.length ? pool.case : CASE_DATABASE;
 
   // Set target spending based on mode and reroll variant
   let targetSpendMax = budget;
@@ -86,7 +100,7 @@ export function generateRandomBuild(
 
   // 1. Pick CPU
   const cpuBudget = targetSpendMax * cpuRatio;
-  const cpuCandidates = filterPool(CPU_DATABASE, cpuBudget, (item) => {
+  const cpuCandidates = filterPool(cpus, cpuBudget, (item) => {
     if (cpuBrand === "AMD") return item.brand === "AMD";
     if (cpuBrand === "Intel") return item.brand === "Intel";
     return true;
@@ -96,7 +110,7 @@ export function generateRandomBuild(
   // 2. Pick Motherboard compatible with CPU socket
   const moboBudget = targetSpendMax * 0.14;
   const moboCandidates = filterPool(
-    MOTHERBOARD_DATABASE,
+    motherboards,
     moboBudget,
     (item) => item.socket === cpu.socket
   );
@@ -104,7 +118,7 @@ export function generateRandomBuild(
 
   // 3. Pick RAM matching Motherboard memory type (DDR4 vs DDR5)
   const ramBudget = targetSpendMax * 0.10;
-  const ramCandidates = filterPool(RAM_DATABASE, ramBudget, (item) => {
+  const ramCandidates = filterPool(rams, ramBudget, (item) => {
     const memoryMatch = item.memoryType === motherboard.memoryType;
     if (ramSize === "16GB") return memoryMatch && item.name.includes("16GB");
     if (ramSize === "32GB") return memoryMatch && item.name.includes("32GB");
@@ -115,7 +129,7 @@ export function generateRandomBuild(
 
   // 4. Pick GPU
   const gpuBudget = targetSpendMax * gpuRatio;
-  const gpuCandidates = filterPool(GPU_DATABASE, gpuBudget, (item) => {
+  const gpuCandidates = filterPool(gpus, gpuBudget, (item) => {
     if (gpuBrand === "NVIDIA") return item.brand === "NVIDIA";
     if (gpuBrand === "AMD") return item.brand === "AMD";
     if (gpuBrand === "Intel") return item.brand === "Intel";
@@ -125,7 +139,7 @@ export function generateRandomBuild(
 
   // 5. Pick Storage
   const storageBudget = targetSpendMax * 0.08;
-  const storageCandidates = filterPool(STORAGE_DATABASE, storageBudget, (item) => {
+  const storageCandidates = filterPool(storages, storageBudget, (item) => {
     if (storageSize === "500GB") return item.name.includes("500GB");
     if (storageSize === "1TB") return item.name.includes("1TB");
     if (storageSize === "2TB") return item.name.includes("2TB");
@@ -136,7 +150,7 @@ export function generateRandomBuild(
 
   // 6. Pick Cooler
   const coolerBudget = targetSpendMax * 0.06;
-  const coolerCandidates = filterPool(COOLER_DATABASE, coolerBudget, (item) => {
+  const coolerCandidates = filterPool(coolers, coolerBudget, (item) => {
     if (cpu.power > 105) {
       return item.price > 0 && item.performanceTier >= 7; // Needs aftermarket
     }
@@ -146,7 +160,7 @@ export function generateRandomBuild(
 
   // 7. Pick Case
   const caseBudget = targetSpendMax * 0.07;
-  const caseCandidates = filterPool(CASE_DATABASE, caseBudget, (item) => {
+  const caseCandidates = filterPool(cases, caseBudget, (item) => {
     if (caseStyle !== "No Preference") {
       return item.caseStyle === caseStyle;
     }
@@ -157,7 +171,7 @@ export function generateRandomBuild(
   // 8. Pick PSU capable of handling system power
   const estPower = cpu.power + gpu.power + 120;
   const psuBudget = targetSpendMax * 0.08;
-  const psuCandidates = filterPool(PSU_DATABASE, psuBudget, (item) => item.power >= estPower);
+  const psuCandidates = filterPool(psus, psuBudget, (item) => item.power >= estPower);
   let psu = pickRandom(psuCandidates);
 
   // Check and Repair Compatibility
@@ -192,12 +206,12 @@ export function generateRandomBuild(
   if (totalPrice > budget) {
     // If case is high end, downgrade case first
     if (buildParts.case.price > 1600) {
-      const cheapCases = CASE_DATABASE.filter((c) => c.price <= 1600);
+      const cheapCases = cases.filter((c) => c.price <= 1600);
       if (cheapCases.length > 0) buildParts.case = cheapCases[0];
     }
     // If cooler is costly and cpu is < 105w, downgrade cooler
     if (buildParts.cooler.price > 1000 && buildParts.cpu.power <= 65) {
-      buildParts.cooler = COOLER_DATABASE[0];
+      buildParts.cooler = coolers[0];
     }
     // Re-sum
     totalPrice =

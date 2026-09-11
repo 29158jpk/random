@@ -84,7 +84,7 @@ function getTodayChallenge(): DailyChallenge {
 }
 
 function HomeContent() {
-  const { isAuthenticated, user, session, openAuthModal } = useAuth();
+  const { isAuthenticated, user, session, openAuthModal, isSuspended } = useAuth();
 
   const [preferences, setPreferences] = useState<UserPreferences>({
     budget: 30000,
@@ -226,6 +226,12 @@ function HomeContent() {
         return;
       }
 
+      // If account is suspended -> block member actions
+      if (isSuspended) {
+        showToast("Your account has been suspended. บัญชีของคุณถูกระงับการใช้งาน");
+        return;
+      }
+
       if (isSpinning) return;
       setIsSpinning(true);
 
@@ -299,6 +305,10 @@ function HomeContent() {
       openAuthModal("login");
       return;
     }
+    if (isSuspended) {
+      showToast("Your account has been suspended. บัญชีของคุณถูกระงับการใช้งาน");
+      return;
+    }
     if (!currentBuild) return;
 
     const exists = savedBuilds.some((b) => b.id === currentBuild.id);
@@ -330,6 +340,11 @@ function HomeContent() {
     if (!isAuthenticated) {
       setIsDailyOpen(false);
       openAuthModal("login");
+      return;
+    }
+    if (isSuspended) {
+      setIsDailyOpen(false);
+      showToast("Your account has been suspended. บัญชีของคุณถูกระงับการใช้งาน");
       return;
     }
 
@@ -527,9 +542,5 @@ function HomeContent() {
 }
 
 export default function Home() {
-  return (
-    <AuthProvider>
-      <HomeContent />
-    </AuthProvider>
-  );
+  return <HomeContent />;
 }
