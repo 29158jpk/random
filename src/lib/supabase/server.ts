@@ -124,3 +124,20 @@ export async function verifyAdminToken(authHeader: string | null): Promise<Verif
 
   return result;
 }
+
+export function getSupabaseAdminClient(authHeader?: string | null) {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+
+  if (serviceRoleKey && serviceRoleKey.length > 0) {
+    return createClient(supabaseUrl, serviceRoleKey, {
+      auth: { persistSession: false },
+    });
+  }
+
+  return createClient(supabaseUrl, anonKey, {
+    global: { headers: { Authorization: authHeader || "" } },
+    auth: { persistSession: false },
+  });
+}

@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { verifyAdminToken } from "@/lib/supabase/server";
+import { verifyAdminToken, getSupabaseAdminClient } from "@/lib/supabase/server";
 import { getAllHardware, addHardwareItem, updateHardwareItem, deleteHardwareItem } from "@/lib/hardwareService";
-import { createClient } from "@supabase/supabase-js";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
 import { HardwareItemDB } from "@/types/admin";
 
@@ -17,7 +16,8 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const category = searchParams.get("category");
 
-    const all = await getAllHardware(true);
+    const adminClient = getSupabaseAdminClient(authHeader);
+    const all = await getAllHardware(true, adminClient);
     let filtered = all;
     if (category && category !== "all") {
       filtered = all.filter((item) => item.category === category);
@@ -46,26 +46,25 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing required hardware fields" }, { status: 400 });
     }
 
+    const adminClient = getSupabaseAdminClient(authHeader);
     const newItem = await addHardwareItem({
       ...item,
       id: item.id || `hw-${item.category}-${Date.now()}`,
       status: item.status || "active",
-    });
+    }, adminClient);
 
     if (isSupabaseConfigured()) {
-      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-      const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-      const client = createClient(supabaseUrl, supabaseAnonKey, {
-        global: { headers: { Authorization: authHeader || "" } },
-      });
-
-      await client.from("admin_logs").insert({
-        admin_id: user.id,
-        admin_email: user.email,
-        action: `Admin added hardware: ${newItem.name} (฿${newItem.price.toLocaleString()})`,
-        target_resource: "hardware",
-        details: { item: newItem },
-      });
+      try {
+        await adminClient.from("admin_logs").insert({
+          admin_id: user.id,
+          admin_email: user.email,
+          action: `Admin added hardware: ${newItem.name} (฿${newItem.price.toLocaleString()})`,
+          target_resource: "hardware",
+          details: { item: newItem },
+        });
+      } catch (logErr) {
+        console.warn("Could not write admin log:", logErr);
+      }
     }
 
     return NextResponse.json({ success: true, item: newItem });
@@ -91,29 +90,28 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: "Missing id or updates" }, { status: 400 });
     }
 
-    const updated = await updateHardwareItem(id, updates);
+    const adminClient = getSupabaseAdminClient(authHeader);
+    const updated = await updateHardwareItem(id, updates, adminClient);
 
     if (isSupabaseConfigured()) {
-      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-      const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-      const client = createClient(supabaseUrl, supabaseAnonKey, {
-        global: { headers: { Authorization: authHeader || "" } },
-      });
+      try {
+        let actionDesc = `Admin updated hardware ${id}`;
+        if (updates.status) {
+          actionDesc = `Admin ${updates.status === "active" ? "enabled" : "disabled"} hardware ${id}`;
+        } else if (updates.price) {
+          actionDesc = `Admin changed hardware ${id} price to ฿${updates.price.toLocaleString()}`;
+        }
 
-      let actionDesc = `Admin updated hardware ${id}`;
-      if (updates.status) {
-        actionDesc = `Admin ${updates.status === "active" ? "enabled" : "disabled"} hardware ${id}`;
-      } else if (updates.price) {
-        actionDesc = `Admin changed hardware ${id} price to ฿${updates.price.toLocaleString()}`;
+        await adminClient.from("admin_logs").insert({
+          admin_id: user.id,
+          admin_email: user.email,
+          action: actionDesc,
+          target_resource: "hardware",
+          details: { id, updates },
+        });
+      } catch (logErr) {
+        console.warn("Could not write admin log:", logErr);
       }
-
-      await client.from("admin_logs").insert({
-        admin_id: user.id,
-        admin_email: user.email,
-        action: actionDesc,
-        target_resource: "hardware",
-        details: { id, updates },
-      });
     }
 
     return NextResponse.json({ success: true, item: updated });
@@ -139,22 +137,21 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "Missing hardware id" }, { status: 400 });
     }
 
-    await deleteHardwareItem(id);
+    const adminClient = getSupabaseAdminClient(authHeader);
+    await deleteHardwareItem(id, adminClient);
 
     if (isSupabaseConfigured()) {
-      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-      const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-      const client = createClient(supabaseUrl, supabaseAnonKey, {
-        global: { headers: { Authorization: authHeader || "" } },
-      });
-
-      await client.from("admin_logs").insert({
-        admin_id: user.id,
-        admin_email: user.email,
-        action: `Admin deleted hardware: ${id}`,
-        target_resource: "hardware",
-        details: { id },
-      });
+      try {
+        await adminClient.from("admin_logs").insert({
+          admin_id: user.id,
+          admin_email: user.email,
+          action: `Admin deleted hardware ${id}`,
+          target_resource: "hardware",
+          details: { id },
+        });
+      } catch (logErr) {
+        console.warn("Could not write admin log:", logErr);
+      }
     }
 
     return NextResponse.json({ success: true });

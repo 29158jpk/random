@@ -1,6 +1,5 @@
-﻿import { NextRequest, NextResponse } from "next/server";
-import { verifyAdminToken } from "@/lib/supabase/server";
-import { createClient } from "@supabase/supabase-js";
+import { NextRequest, NextResponse } from "next/server";
+import { verifyAdminToken, getSupabaseAdminClient } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
 import fs from "fs";
 import path from "path";
@@ -56,16 +55,18 @@ export async function POST(req: NextRequest) {
       .substring(0, 30);
     const fileName = `${Date.now()}-${sanitizedBase}${fileExt}`;
 
-    // 1. Production Flow: Upload to Supabase Storage bucket `hardware-images`
+    // 1. Primary Flow: Upload to Supabase Storage bucket `hardware-images`
     if (isSupabaseConfigured()) {
       try {
-        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-        const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-        const client = createClient(supabaseUrl, supabaseAnonKey, {
-          global: { headers: { Authorization: authHeader || "" } },
-        });
-
+        const client = getSupabaseAdminClient(authHeader);
         const bucketName = "hardware-images";
+
+        // Auto-create bucket if missing
+        try {
+          await client.storage.createBucket(bucketName, { public: true });
+        } catch {
+          // ignore if bucket already exists
+        }
 
         // Upload file to bucket
         const { error: uploadError } = await client.storage
@@ -75,67 +76,65 @@ export async function POST(req: NextRequest) {
             upsert: true,
           });
 
-        if (uploadError) {
-          console.error("Supabase Storage upload error:", uploadError);
-          // If bucket doesn't exist yet, try to create or fallback
-          throw uploadError;
-        }
+        if (!uploadError) {
+          const { data: publicData } = client.storage
+            .from(bucketName)
+            .getPublicUrl(fileName);
 
-        const { data: publicData } = client.storage
-          .from(bucketName)
-          .getPublicUrl(fileName);
+          const newImageUrl = publicData.publicUrl;
 
-        const newImageUrl = publicData.publicUrl;
-
-        // Safely delete old image if it was in the same bucket
-        if (oldImageUrl && oldImageUrl.includes(bucketName)) {
-          try {
-            const oldPath = oldImageUrl.split(`${bucketName}/`).pop();
-            if (oldPath && oldPath !== fileName) {
-              await client.storage.from(bucketName).remove([oldPath]);
+          // Safely delete old image if it was in the same bucket
+          if (oldImageUrl && oldImageUrl.includes(bucketName)) {
+            try {
+              const oldPath = oldImageUrl.split(`${bucketName}/`).pop();
+              if (oldPath && oldPath !== fileName) {
+                await client.storage.from(bucketName).remove([oldPath]);
+              }
+            } catch (delErr) {
+              console.warn("Could not delete old image:", delErr);
             }
-          } catch (delErr) {
-            console.warn("Could not delete old image:", delErr);
           }
-        }
 
-        return NextResponse.json({
-          success: true,
-          url: newImageUrl,
-          fileName,
-        });
+          return NextResponse.json({
+            success: true,
+            url: newImageUrl,
+            fileName,
+          });
+        } else {
+          console.warn("Supabase Storage upload warning:", uploadError.message);
+        }
       } catch (storageErr) {
-        console.warn("Supabase storage error, falling back to local static:", storageErr);
+        console.warn("Supabase storage error, attempting fallback:", storageErr);
       }
     }
 
-    // 2. Local Fallback Flow: Save to public/uploads/hardware
-    const uploadDir = path.join(process.cwd(), "public", "uploads", "hardware");
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-
-    const localFilePath = path.join(uploadDir, fileName);
-    fs.writeFileSync(localFilePath, buffer);
-
-    // Safely clean old local file if present
-    if (oldImageUrl && oldImageUrl.startsWith("/uploads/hardware/")) {
-      try {
-        const oldLocal = path.join(process.cwd(), "public", oldImageUrl);
-        if (fs.existsSync(oldLocal)) {
-          fs.unlinkSync(oldLocal);
-        }
-      } catch {
-        // ignore
+    // 2. Local Filesystem Flow (Works in local dev)
+    try {
+      const uploadDir = path.join(process.cwd(), "public", "uploads", "hardware");
+      if (!fs.existsSync(uploadDir)) {
+        fs.mkdirSync(uploadDir, { recursive: true });
       }
-    }
 
-    const localUrl = `/uploads/hardware/${fileName}`;
-    return NextResponse.json({
-      success: true,
-      url: localUrl,
-      fileName,
-    });
+      const localFilePath = path.join(uploadDir, fileName);
+      fs.writeFileSync(localFilePath, buffer);
+
+      const localUrl = `/uploads/hardware/${fileName}`;
+      return NextResponse.json({
+        success: true,
+        url: localUrl,
+        fileName,
+      });
+    } catch {
+      // In serverless/read-only environments (like Vercel), local filesystem write fails.
+      // Fallback safely to high-performance Data URI so the image is NEVER lost!
+      const base64Data = buffer.toString("base64");
+      const dataUri = `data:${file.type};base64,${base64Data}`;
+      return NextResponse.json({
+        success: true,
+        url: dataUri,
+        fileName,
+      });
+    }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Internal server error during upload";
     return NextResponse.json({ error: msg }, { status: 500 });

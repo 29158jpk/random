@@ -1,5 +1,6 @@
 import { ComponentCategory, HardwareItem } from "@/types/hardware";
 import { HardwareItemDB } from "@/types/admin";
+import { SupabaseClient } from "@supabase/supabase-js";
 import {
   CPU_DATABASE,
   GPU_DATABASE,
@@ -59,10 +60,11 @@ function saveLocalHardware(items: HardwareItemDB[]): void {
 /**
  * Fetch all hardware items for Admin management
  */
-export async function getAllHardware(includeDisabled: boolean = true): Promise<HardwareItemDB[]> {
+export async function getAllHardware(includeDisabled: boolean = true, client?: SupabaseClient | null): Promise<HardwareItemDB[]> {
+  const db = client || supabase;
   if (isSupabaseConfigured()) {
     try {
-      let query = supabase.from("hardware").select("*").order("category").order("price", { ascending: true });
+      let query = db.from("hardware").select("*").order("category").order("price", { ascending: true });
       if (!includeDisabled) {
         query = query.eq("status", "active");
       }
@@ -183,7 +185,11 @@ export function getLocalActiveHardwarePool(): Record<ComponentCategory, Hardware
 /**
  * Add new hardware item (Admin)
  */
-export async function addHardwareItem(item: Omit<HardwareItemDB, "created_at" | "updated_at">): Promise<HardwareItemDB> {
+export async function addHardwareItem(
+  item: Omit<HardwareItemDB, "created_at" | "updated_at">,
+  client?: SupabaseClient | null
+): Promise<HardwareItemDB> {
+  const db = client || supabase;
   const isItemActive = item.active !== false && item.status !== "disabled";
   const newItem: HardwareItemDB = {
     ...item,
@@ -195,7 +201,7 @@ export async function addHardwareItem(item: Omit<HardwareItemDB, "created_at" | 
 
   if (isSupabaseConfigured()) {
     try {
-      await supabase.from("hardware").insert({
+      await db.from("hardware").upsert({
         id: newItem.id,
         name: newItem.name,
         brand: newItem.brand,
@@ -234,20 +240,25 @@ export async function addHardwareItem(item: Omit<HardwareItemDB, "created_at" | 
 /**
  * Update hardware item (Admin)
  */
-export async function updateHardwareItem(id: string, updates: Partial<HardwareItemDB>): Promise<HardwareItemDB | null> {
+export async function updateHardwareItem(
+  id: string,
+  updates: Partial<HardwareItemDB>,
+  client?: SupabaseClient | null
+): Promise<HardwareItemDB | null> {
+  const db = client || supabase;
   const local = getLocalHardware();
   const index = local.findIndex((h) => h.id === id);
-  if (index === -1) return null;
+  const current = index !== -1 ? local[index] : null;
 
-  const current = local[index];
   const newActive = updates.active !== undefined 
     ? updates.active 
     : updates.status !== undefined 
     ? updates.status === "active" 
-    : current.active !== false;
+    : current ? current.active !== false : true;
 
   const updatedItem: HardwareItemDB = {
-    ...current,
+    ...(current || {} as HardwareItemDB),
+    id,
     ...updates,
     active: newActive,
     status: newActive ? "active" : "disabled",
@@ -256,56 +267,69 @@ export async function updateHardwareItem(id: string, updates: Partial<HardwareIt
 
   if (isSupabaseConfigured()) {
     try {
-      await supabase
+      const payload: Record<string, unknown> = {
+        updated_at: new Date().toISOString(),
+      };
+      if (updates.name !== undefined) payload.name = updates.name;
+      if (updates.brand !== undefined) payload.brand = updates.brand;
+      if (updates.category !== undefined) payload.category = updates.category;
+      if (updates.price !== undefined) payload.price = updates.price;
+      if (updates.performanceTier !== undefined) payload.performance = updates.performanceTier;
+      if (updates.power !== undefined) payload.power = updates.power;
+      if (updates.socket !== undefined) payload.socket = updates.socket || null;
+      if (updates.memoryType !== undefined) payload.memory_type = updates.memoryType || null;
+      if (updates.vram !== undefined) payload.vram = updates.vram || null;
+      if (updates.formFactor !== undefined) payload.form_factor = updates.formFactor || null;
+      if (updates.image_url !== undefined) payload.image_url = updates.image_url || null;
+      if (updates.specs !== undefined) payload.specs = updates.specs || "";
+      if (updates.badge !== undefined) payload.badge = updates.badge || null;
+      if (updates.model !== undefined) payload.model = updates.model || null;
+      if (updates.description !== undefined) payload.description = updates.description || null;
+      if (updates.power_consumption !== undefined) payload.power_consumption = updates.power_consumption || null;
+      if (updates.compatibility !== undefined) payload.compatibility = updates.compatibility || null;
+      if (updates.product_url !== undefined) payload.product_url = updates.product_url || null;
+      if (updates.status !== undefined) payload.status = updates.status;
+      if (updates.active !== undefined) payload.active = updates.active;
+
+      const { data, error } = await db
         .from("hardware")
-        .update({
-          name: updatedItem.name,
-          brand: updatedItem.brand,
-          category: updatedItem.category,
-          price: updatedItem.price,
-          performance: updatedItem.performanceTier,
-          power: updatedItem.power,
-          socket: updatedItem.socket || null,
-          memory_type: updatedItem.memoryType || null,
-          vram: updatedItem.vram || null,
-          form_factor: updatedItem.formFactor || null,
-          image_url: updatedItem.image_url || null,
-          specs: updatedItem.specs,
-          badge: updatedItem.badge || null,
-          model: updatedItem.model || null,
-          description: updatedItem.description || null,
-          power_consumption: updatedItem.power_consumption || `${updatedItem.power}W`,
-          compatibility: updatedItem.compatibility || null,
-          product_url: updatedItem.product_url || null,
-          status: updatedItem.status,
-          active: updatedItem.active,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", id);
+        .update(payload)
+        .eq("id", id)
+        .select();
+
+      if (error) {
+        console.error("Supabase update error:", error);
+      } else if (data && data.length > 0) {
+        const row = data[0];
+        if (row.image_url !== undefined) updatedItem.image_url = row.image_url || undefined;
+      }
     } catch (err) {
       console.warn("Could not update hardware in Supabase:", err);
     }
   }
 
-  local[index] = updatedItem;
-  saveLocalHardware(local);
+  if (index !== -1) {
+    local[index] = updatedItem;
+    saveLocalHardware(local);
+  }
   return updatedItem;
 }
 
 /**
  * Toggle enable/disable status of hardware (Admin)
  */
-export async function toggleHardwareStatus(id: string, status: "active" | "disabled"): Promise<void> {
-  await updateHardwareItem(id, { status, active: status === "active" });
+export async function toggleHardwareStatus(id: string, status: "active" | "disabled", client?: SupabaseClient | null): Promise<void> {
+  await updateHardwareItem(id, { status, active: status === "active" }, client);
 }
 
 /**
  * Delete hardware item (Admin)
  */
-export async function deleteHardwareItem(id: string): Promise<boolean> {
+export async function deleteHardwareItem(id: string, client?: SupabaseClient | null): Promise<boolean> {
+  const db = client || supabase;
   if (isSupabaseConfigured()) {
     try {
-      await supabase.from("hardware").delete().eq("id", id);
+      await db.from("hardware").delete().eq("id", id);
     } catch (err) {
       console.warn("Could not delete hardware from Supabase:", err);
     }
