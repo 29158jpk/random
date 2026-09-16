@@ -6,6 +6,7 @@ import {
   PCBuild,
   UserPreferences,
   DailyChallenge,
+  HardwareItem,
 } from "@/types/hardware";
 import { generateRandomBuild } from "@/lib/randomEngine";
 import { playJackpotSound, playClickSound } from "@/lib/soundEffects";
@@ -15,12 +16,17 @@ import { HeroSection } from "@/components/HeroSection";
 import { RandomPanel } from "@/components/RandomPanel";
 import { SlotAnimation } from "@/components/SlotAnimation";
 import { PCResultCard } from "@/components/PCResultCard";
+import { PCResultModal } from "@/components/PCResultModal";
+import { HardwareDetailModal } from "@/components/HardwareDetailModal";
+import { LoginRequiredModal } from "@/components/LoginRequiredModal";
 import { DailyChallengeModal } from "@/components/DailyChallengeModal";
 import { CollectionModal } from "@/components/CollectionModal";
 import { HistoryModal } from "@/components/HistoryModal";
 import { AuthModal } from "@/components/AuthModal";
 import { supabase, isSupabaseConfigured } from "@/lib/supabase/client";
 import { Lock, Sparkles, CheckCircle2 } from "lucide-react";
+
+const PREFERENCES_STORAGE_KEY = "horizon_user_preferences";
 
 // Seeded Daily Challenge based on date
 function getTodayChallenge(): DailyChallenge {
@@ -86,18 +92,42 @@ function getTodayChallenge(): DailyChallenge {
 function HomeContent() {
   const { isAuthenticated, user, session, openAuthModal, isSuspended } = useAuth();
 
-  const [preferences, setPreferences] = useState<UserPreferences>({
-    budget: 30000,
-    usage: "gaming",
-    selectedGames: ["Valorant", "GTA V", "Apex Legends"],
-    resolution: "1080p",
-    cpuBrand: "No Preference",
-    gpuBrand: "No Preference",
-    ramSize: "No Preference",
-    storageSize: "No Preference",
-    caseStyle: "No Preference",
-    mode: "normal",
+  useEffect(() => {
+    console.log(">>> HOME CONTENT MOUNTED IN BROWSER! <<<");
+  }, []);
+
+  const [preferences, setPreferences] = useState<UserPreferences>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem(PREFERENCES_STORAGE_KEY);
+        if (saved) return JSON.parse(saved);
+      } catch {
+        // ignore
+      }
+    }
+    return {
+      budget: 30000,
+      usage: "gaming",
+      selectedGames: ["Valorant", "GTA V", "Apex Legends", "Counter-Strike 2"],
+      resolution: "1080p",
+      cpuBrand: "No Preference",
+      gpuBrand: "No Preference",
+      ramSize: "No Preference",
+      storageSize: "No Preference",
+      caseStyle: "No Preference",
+      mode: "normal",
+    };
   });
+
+  // Keep preferences saved in localStorage so login NEVER clears user choices
+  const updatePreferences = (newPrefs: UserPreferences) => {
+    setPreferences(newPrefs);
+    try {
+      localStorage.setItem(PREFERENCES_STORAGE_KEY, JSON.stringify(newPrefs));
+    } catch {
+      // ignore
+    }
+  };
 
   const [currentBuild, setCurrentBuild] = useState<PCBuild | null>(null);
   const [pendingBuild, setPendingBuild] = useState<PCBuild | null>(null);
@@ -108,6 +138,12 @@ function HomeContent() {
   const [isDailyOpen, setIsDailyOpen] = useState(false);
   const [isCollectionOpen, setIsCollectionOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [isLoginRequiredOpen, setIsLoginRequiredOpen] = useState(false);
+  const [isResultModalOpen, setIsResultModalOpen] = useState(false);
+
+  // Hardware Detail State
+  const [selectedHardware, setSelectedHardware] = useState<HardwareItem | null>(null);
+  const [isHardwareDetailOpen, setIsHardwareDetailOpen] = useState(false);
 
   // Storage state bound to user
   const [savedBuilds, setSavedBuilds] = useState<PCBuild[]>([]);
@@ -220,9 +256,9 @@ function HomeContent() {
   // Trigger Roll - STRICT AUTHENTICATION GUARD
   const handleSpin = useCallback(
     async (variant: "normal" | "better" | "cheaper" = "normal") => {
-      // 1. If not authenticated -> strictly block and open modal!
+      // 1. If not authenticated -> Show Login Required Modal
       if (!isAuthenticated) {
-        openAuthModal("login");
+        setIsLoginRequiredOpen(true);
         return;
       }
 
@@ -266,13 +302,14 @@ function HomeContent() {
       const generated = generateRandomBuild(preferences, variant);
       setPendingBuild(generated);
     },
-    [isAuthenticated, isSpinning, openAuthModal, preferences, session]
+    [isAuthenticated, isSpinning, preferences, session, isSuspended]
   );
 
   // Complete Slot Animation
   const handleAnimationComplete = () => {
     if (pendingBuild) {
       setCurrentBuild(pendingBuild);
+      setIsResultModalOpen(true); // OPEN RESULT POPUP IMMEDIATELY!
 
       // Trigger Confetti for high rarity or special builds
       if (
@@ -283,8 +320,8 @@ function HomeContent() {
         playJackpotSound();
         try {
           confetti({
-            particleCount: 100,
-            spread: 70,
+            particleCount: 120,
+            spread: 80,
             origin: { y: 0.6 },
           });
         } catch {
@@ -302,7 +339,7 @@ function HomeContent() {
   // Toggle Save to Collection
   const toggleSaveCurrentBuild = async () => {
     if (!isAuthenticated) {
-      openAuthModal("login");
+      setIsLoginRequiredOpen(true);
       return;
     }
     if (isSuspended) {
@@ -316,9 +353,11 @@ function HomeContent() {
     if (exists) {
       updated = savedBuilds.filter((b) => b.id !== currentBuild.id);
       persistSaved(updated);
+      showToast("Removed from Collection");
     } else {
       updated = [currentBuild, ...savedBuilds];
       persistSaved(updated);
+      showToast("❤️ Saved to Collection!");
     }
 
     // Sync is_saved in Supabase if configured
@@ -335,11 +374,17 @@ function HomeContent() {
     }
   };
 
+  // Open Hardware Detail Modal
+  const handleSelectHardware = (item: HardwareItem) => {
+    setSelectedHardware(item);
+    setIsHardwareDetailOpen(true);
+  };
+
   // Accept Daily Challenge
   const handleAcceptChallenge = (challenge: DailyChallenge) => {
     if (!isAuthenticated) {
       setIsDailyOpen(false);
-      openAuthModal("login");
+      setIsLoginRequiredOpen(true);
       return;
     }
     if (isSuspended) {
@@ -348,14 +393,14 @@ function HomeContent() {
       return;
     }
 
-    setPreferences((prev) => ({
-      ...prev,
+    updatePreferences({
+      ...preferences,
       budget: challenge.targetBudget,
       usage: challenge.targetUsage,
       cpuBrand: challenge.constraints.cpuBrand || "No Preference",
       gpuBrand: challenge.constraints.gpuBrand || "No Preference",
       caseStyle: challenge.constraints.caseStyle || "No Preference",
-    }));
+    });
     setIsDailyOpen(false);
 
     // Scroll to generator and spin
@@ -373,10 +418,10 @@ function HomeContent() {
   );
 
   return (
-    <div className="min-h-screen flex flex-col bg-background text-foreground selection:bg-sky-500 selection:text-slate-950">
+    <div className="min-h-screen flex flex-col bg-honeycomb-cyan text-foreground selection:bg-sky-500 selection:text-slate-950">
       {/* Toast Notification Banner */}
       {toastMessage && (
-        <div className="fixed top-18 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-2xl glass-panel border border-emerald-500/40 bg-emerald-950/80 text-emerald-300 text-xs sm:text-sm font-bold shadow-2xl flex items-center gap-2.5 animate-in fade-in slide-in-from-top-4">
+        <div className="fixed top-18 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-2xl glass-panel border border-emerald-500/40 bg-emerald-950/90 text-emerald-300 text-xs sm:text-sm font-bold shadow-2xl flex items-center gap-2.5 animate-in fade-in slide-in-from-top-4">
           <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
           <span>{toastMessage}</span>
         </div>
@@ -386,14 +431,14 @@ function HomeContent() {
       <Navbar
         onOpenCollection={() => {
           if (!isAuthenticated) {
-            openAuthModal("login");
+            setIsLoginRequiredOpen(true);
             return;
           }
           setIsCollectionOpen(true);
         }}
         onOpenHistory={() => {
           if (!isAuthenticated) {
-            openAuthModal("login");
+            setIsLoginRequiredOpen(true);
             return;
           }
           setIsHistoryOpen(true);
@@ -412,6 +457,15 @@ function HomeContent() {
               target.scrollIntoView({ behavior: "smooth" });
             }
           }}
+          onRandomClick={() => handleSpin("normal")}
+          onOpenDailyChallenge={() => setIsDailyOpen(true)}
+          onOpenCollection={() => {
+            if (!isAuthenticated) {
+              setIsLoginRequiredOpen(true);
+              return;
+            }
+            setIsCollectionOpen(true);
+          }}
         />
 
         {/* Guest Reminder Banner */}
@@ -426,7 +480,7 @@ function HomeContent() {
                   ระบบสุ่ม PC สำหรับสมาชิกเท่านั้น (Members Only)
                 </h4>
                 <p className="text-[11px] sm:text-xs text-slate-300 mt-0.5">
-                  คุณสามารถปรับแต่งงบและสเปกที่ต้องการได้อิสระ เข้าสู่ระบบเพื่อเริ่มสุ่มและบันทึกสเปกของคุณ
+                  คุณสามารถปรับแต่งงบและสเปกที่ต้องการได้อิสระ เมื่อกดสุ่ม ระบบจะให้เข้าสู่ระบบโดยไม่ล้างค่าที่คุณตั้งไว้
                 </p>
               </div>
             </div>
@@ -444,11 +498,11 @@ function HomeContent() {
 
         {/* Generator Work Area */}
         <div className="my-8 grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-          {/* Left Column: Config / Filter Panel */}
+          {/* Left Column: Config Panel */}
           <div className="lg:col-span-5 w-full">
             <RandomPanel
               preferences={preferences}
-              onChangePreferences={setPreferences}
+              onChangePreferences={updatePreferences}
               onSpin={() => handleSpin("normal")}
               isSpinning={isSpinning}
             />
@@ -462,14 +516,34 @@ function HomeContent() {
                 onAnimationComplete={handleAnimationComplete}
               />
             ) : currentBuild ? (
-              <PCResultCard
-                build={currentBuild}
-                isSaved={isCurrentBuildSaved}
-                onReroll={() => handleSpin("normal")}
-                onBetterReroll={() => handleSpin("better")}
-                onCheaperReroll={() => handleSpin("cheaper")}
-                onToggleSave={toggleSaveCurrentBuild}
-              />
+              <div className="space-y-4">
+                {/* Button to reopen large Result Popup */}
+                <div className="flex items-center justify-between px-1">
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                    Current Generated Build
+                  </span>
+                  <button
+                    onClick={() => {
+                      playClickSound();
+                      setIsResultModalOpen(true);
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/40 text-xs font-bold flex items-center gap-1.5 transition-all"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Open Result Popup (ดูหน้าต่างผลลัพธ์)</span>
+                  </button>
+                </div>
+
+                <PCResultCard
+                  build={currentBuild}
+                  isSaved={isCurrentBuildSaved}
+                  onReroll={() => handleSpin("normal")}
+                  onBetterReroll={() => handleSpin("better")}
+                  onCheaperReroll={() => handleSpin("cheaper")}
+                  onToggleSave={toggleSaveCurrentBuild}
+                  onSelectHardware={handleSelectHardware}
+                />
+              </div>
             ) : (
               /* Idle Placeholder state before first spin */
               <div className="glass-panel border-2 border-dashed border-white/10 rounded-3xl p-10 sm:p-14 text-center">
@@ -488,7 +562,7 @@ function HomeContent() {
                   onClick={() => handleSpin("normal")}
                   className="px-6 py-3 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-black text-xs sm:text-sm tracking-wider uppercase transition-all shadow-lg shadow-sky-500/20"
                 >
-                  {isAuthenticated ? "🎲 สุ่มสเปกครั้งแรกเลย" : "🔒 เข้าสู่ระบบเพื่อเริ่มสุ่ม"}
+                  {isAuthenticated ? "🎲 สุ่มสเปกคอมเลย" : "🔒 สุ่มสเปกคอม (LOGIN REQUIRED)"}
                 </button>
               </div>
             )}
@@ -496,9 +570,51 @@ function HomeContent() {
         </div>
       </main>
 
-      {/* Modals */}
+      {/* MODALS */}
+      {/* 1. Login Required Modal (When guest clicks Random PC) */}
+      <LoginRequiredModal
+        isOpen={isLoginRequiredOpen}
+        onClose={() => setIsLoginRequiredOpen(false)}
+        onProceedLogin={() => {
+          setIsLoginRequiredOpen(false);
+          openAuthModal("login");
+        }}
+      />
+
+      {/* 2. Authentication Modal */}
       <AuthModal onSuccessMessage={showToast} />
 
+      {/* 3. PC Result Modal (POPUP ขนาดใหญ่หลังสุ่มสำเร็จ) */}
+      <PCResultModal
+        isOpen={isResultModalOpen}
+        onClose={() => setIsResultModalOpen(false)}
+        build={currentBuild}
+        isSaved={isCurrentBuildSaved}
+        onToggleSave={toggleSaveCurrentBuild}
+        onReroll={() => {
+          setIsResultModalOpen(false);
+          handleSpin("normal");
+        }}
+        onBetterReroll={() => {
+          setIsResultModalOpen(false);
+          handleSpin("better");
+        }}
+        onCheaperReroll={() => {
+          setIsResultModalOpen(false);
+          handleSpin("cheaper");
+        }}
+        onSelectHardware={handleSelectHardware}
+      />
+
+      {/* 4. Hardware Detail Modal (เปิดเมื่อคลิกชิ้นส่วน Hardware) */}
+      <HardwareDetailModal
+        isOpen={isHardwareDetailOpen}
+        onClose={() => setIsHardwareDetailOpen(false)}
+        item={selectedHardware}
+        buildContext={currentBuild}
+      />
+
+      {/* 5. Daily Challenge Modal */}
       <DailyChallengeModal
         isOpen={isDailyOpen}
         onClose={() => setIsDailyOpen(false)}
@@ -507,25 +623,33 @@ function HomeContent() {
         lastBuild={currentBuild}
       />
 
+      {/* 6. Collection Modal */}
       <CollectionModal
         isOpen={isCollectionOpen}
         onClose={() => setIsCollectionOpen(false)}
         savedBuilds={savedBuilds}
-        onSelectBuild={(build) => setCurrentBuild(build)}
+        onSelectBuild={(build) => {
+          setCurrentBuild(build);
+          setIsResultModalOpen(true);
+        }}
         onDeleteBuild={(id) => persistSaved(savedBuilds.filter((b) => b.id !== id))}
         onClearAll={() => persistSaved([])}
       />
 
+      {/* 7. History Modal */}
       <HistoryModal
         isOpen={isHistoryOpen}
         onClose={() => setIsHistoryOpen(false)}
         historyBuilds={historyBuilds}
-        onSelectBuild={(build) => setCurrentBuild(build)}
+        onSelectBuild={(build) => {
+          setCurrentBuild(build);
+          setIsResultModalOpen(true);
+        }}
         onClearHistory={() => persistHistory([])}
       />
 
       {/* Footer */}
-      <footer className="w-full glass-panel border-t border-white/10 py-6 px-4 text-center text-xs text-slate-400">
+      <footer className="w-full glass-panel border-t border-white/10 py-6 px-4 text-center text-xs text-slate-400 mt-auto">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <span className="font-bold text-white">Horizon Auto PC</span>
@@ -533,7 +657,7 @@ function HomeContent() {
             <span>Spin Your PC. Find Your Build.</span>
           </div>
           <p className="text-slate-500">
-            สร้างขึ้นเพื่อความสนุกและการจัดสเปกคอมพิวเตอร์อย่างสมดุล (Horizon Auto PC)
+            ระบบสุ่มสเปกคอมพิวเตอร์อัจฉริยะ (Horizon Auto PC Engine)
           </p>
         </div>
       </footer>

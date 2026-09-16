@@ -26,8 +26,12 @@ export const INITIAL_STATIC_HARDWARE: HardwareItemDB[] = [
 
 const LOCAL_STORAGE_HARDWARE_KEY = "horizon_hardware_dataset";
 
+let serverInMemoryHardware: HardwareItemDB[] = [...INITIAL_STATIC_HARDWARE];
+
 function getLocalHardware(): HardwareItemDB[] {
-  if (typeof window === "undefined") return INITIAL_STATIC_HARDWARE;
+  if (typeof window === "undefined") {
+    return serverInMemoryHardware;
+  }
   try {
     const raw = localStorage.getItem(LOCAL_STORAGE_HARDWARE_KEY);
     if (!raw) {
@@ -41,7 +45,10 @@ function getLocalHardware(): HardwareItemDB[] {
 }
 
 function saveLocalHardware(items: HardwareItemDB[]): void {
-  if (typeof window === "undefined") return;
+  if (typeof window === "undefined") {
+    serverInMemoryHardware = items;
+    return;
+  }
   try {
     localStorage.setItem(LOCAL_STORAGE_HARDWARE_KEY, JSON.stringify(items));
   } catch {
@@ -76,7 +83,13 @@ export async function getAllHardware(includeDisabled: boolean = true): Promise<H
           specs: row.specs || "",
           badge: row.badge || undefined,
           image_url: row.image_url || undefined,
-          status: (row.status || "active") as "active" | "disabled",
+          model: row.model || undefined,
+          description: row.description || undefined,
+          power_consumption: row.power_consumption || (row.power ? `${row.power}W` : undefined),
+          compatibility: row.compatibility || undefined,
+          product_url: row.product_url || undefined,
+          active: row.active !== undefined ? Boolean(row.active) : row.status !== "disabled",
+          status: (row.status || (row.active === false ? "disabled" : "active")) as "active" | "disabled",
           created_at: row.created_at,
           updated_at: row.updated_at,
         }));
@@ -112,7 +125,8 @@ export async function getActiveHardwarePool(): Promise<Record<ComponentCategory,
   };
 
   for (const item of allActive) {
-    if (item.category in pool && item.status !== "disabled") {
+    const isActive = item.status !== "disabled" && item.active !== false;
+    if (item.category in pool && isActive) {
       pool[item.category].push(item);
     }
   }
@@ -134,7 +148,9 @@ export async function getActiveHardwarePool(): Promise<Record<ComponentCategory,
  * Synchronous active hardware pool getter for client-side fallback
  */
 export function getLocalActiveHardwarePool(): Record<ComponentCategory, HardwareItem[]> {
-  const local = getLocalHardware().filter((item) => item.status !== "disabled");
+  const local = getLocalHardware().filter(
+    (item) => item.status !== "disabled" && item.active !== false
+  );
   const pool: Record<ComponentCategory, HardwareItem[]> = {
     cpu: [],
     gpu: [],
@@ -168,8 +184,11 @@ export function getLocalActiveHardwarePool(): Record<ComponentCategory, Hardware
  * Add new hardware item (Admin)
  */
 export async function addHardwareItem(item: Omit<HardwareItemDB, "created_at" | "updated_at">): Promise<HardwareItemDB> {
+  const isItemActive = item.active !== false && item.status !== "disabled";
   const newItem: HardwareItemDB = {
     ...item,
+    active: isItemActive,
+    status: isItemActive ? "active" : "disabled",
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
@@ -191,7 +210,13 @@ export async function addHardwareItem(item: Omit<HardwareItemDB, "created_at" | 
         image_url: newItem.image_url || null,
         specs: newItem.specs,
         badge: newItem.badge || null,
+        model: newItem.model || null,
+        description: newItem.description || null,
+        power_consumption: newItem.power_consumption || `${newItem.power}W`,
+        compatibility: newItem.compatibility || null,
+        product_url: newItem.product_url || null,
         status: newItem.status,
+        active: newItem.active,
       });
     } catch (err) {
       console.warn("Could not insert hardware to Supabase:", err);
@@ -214,9 +239,18 @@ export async function updateHardwareItem(id: string, updates: Partial<HardwareIt
   const index = local.findIndex((h) => h.id === id);
   if (index === -1) return null;
 
+  const current = local[index];
+  const newActive = updates.active !== undefined 
+    ? updates.active 
+    : updates.status !== undefined 
+    ? updates.status === "active" 
+    : current.active !== false;
+
   const updatedItem: HardwareItemDB = {
-    ...local[index],
+    ...current,
     ...updates,
+    active: newActive,
+    status: newActive ? "active" : "disabled",
     updated_at: new Date().toISOString(),
   };
 
@@ -238,7 +272,13 @@ export async function updateHardwareItem(id: string, updates: Partial<HardwareIt
           image_url: updatedItem.image_url || null,
           specs: updatedItem.specs,
           badge: updatedItem.badge || null,
+          model: updatedItem.model || null,
+          description: updatedItem.description || null,
+          power_consumption: updatedItem.power_consumption || `${updatedItem.power}W`,
+          compatibility: updatedItem.compatibility || null,
+          product_url: updatedItem.product_url || null,
           status: updatedItem.status,
+          active: updatedItem.active,
           updated_at: new Date().toISOString(),
         })
         .eq("id", id);
@@ -256,7 +296,7 @@ export async function updateHardwareItem(id: string, updates: Partial<HardwareIt
  * Toggle enable/disable status of hardware (Admin)
  */
 export async function toggleHardwareStatus(id: string, status: "active" | "disabled"): Promise<void> {
-  await updateHardwareItem(id, { status });
+  await updateHardwareItem(id, { status, active: status === "active" });
 }
 
 /**

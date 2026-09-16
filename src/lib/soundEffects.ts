@@ -35,11 +35,19 @@ const getAudioContext = (): AudioContext | null => {
     const AudioContextClass =
       window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     if (AudioContextClass) {
-      audioCtx = new AudioContextClass();
+      try {
+        audioCtx = new AudioContextClass();
+      } catch {
+        return null;
+      }
     }
   }
-  if (audioCtx && audioCtx.state === "suspended") {
-    audioCtx.resume();
+  try {
+    if (audioCtx && audioCtx.state === "suspended") {
+      audioCtx.resume().catch(() => {});
+    }
+  } catch {
+    // ignore
   }
   return audioCtx;
 };

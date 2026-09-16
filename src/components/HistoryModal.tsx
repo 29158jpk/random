@@ -2,8 +2,9 @@
 
 import React from "react";
 import { PCBuild } from "@/types/hardware";
-import { History, X, Trash2, RotateCcw, Clock } from "lucide-react";
+import { History, X, RotateCcw, Clock, Sparkles } from "lucide-react";
 import { playClickSound } from "@/lib/soundEffects";
+import { getHardwareImageUrl } from "@/lib/hardwareImages";
 
 interface HistoryModalProps {
   isOpen: boolean;
@@ -23,8 +24,8 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
-      <div className="w-full max-w-2xl rounded-3xl glass-panel border border-purple-500/30 p-6 sm:p-8 shadow-2xl relative max-h-[85vh] flex flex-col">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in overflow-y-auto">
+      <div className="w-full max-w-2xl rounded-3xl glass-panel border border-purple-500/30 p-5 sm:p-7 shadow-2xl relative my-auto max-h-[88vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b border-white/10 shrink-0">
           <div className="flex items-center gap-3">
@@ -36,7 +37,7 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
                 Build History ({historyBuilds.length})
               </h2>
               <p className="text-xs text-slate-400">
-                ประวัติการสุ่มล่าสุด 30 รายการที่ผ่านมา
+                ประวัติการสุ่มล่าสุด 35 รายการ พร้อมรูปภาพและสเปกอุปกรณ์
               </p>
             </div>
           </div>
@@ -70,38 +71,55 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
                 hour: "2-digit",
                 minute: "2-digit",
               });
+              const caseImg = getHardwareImageUrl(build.case);
 
               return (
                 <div
                   key={build.id}
-                  className="glass-panel p-3.5 rounded-2xl border border-white/10 hover:border-purple-500/40 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 group"
+                  className="glass-panel p-3 sm:p-3.5 rounded-2xl border border-white/10 hover:border-purple-500/40 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 group"
                 >
-                  <div>
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-[11px] font-bold text-slate-400 flex items-center gap-1">
-                        <Clock className="w-3 h-3" /> {formattedTime}
-                      </span>
-                      <span className="text-slate-600">•</span>
-                      <span className="text-xs font-black text-purple-400">
-                        {build.rarity}
-                      </span>
-                      <span className="text-slate-600">•</span>
-                      <span className="text-xs font-bold text-amber-400">
-                        🍀 Luck: {build.luckScore}/100
-                      </span>
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-12 h-12 rounded-xl bg-slate-900 border border-white/10 shrink-0 overflow-hidden flex items-center justify-center p-1">
+                      <img
+                        src={caseImg}
+                        alt={build.name}
+                        className="max-h-full max-w-full object-contain"
+                        onError={(e) => {
+                          (e.currentTarget as HTMLImageElement).src = getHardwareImageUrl({
+                            category: "case",
+                            name: build.name,
+                          });
+                        }}
+                      />
                     </div>
 
-                    <h3 className="text-sm font-black text-white group-hover:text-purple-300 transition-colors">
-                      {build.name}
-                    </h3>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <span className="text-[11px] font-bold text-slate-400 flex items-center gap-1">
+                          <Clock className="w-3 h-3" /> {formattedTime}
+                        </span>
+                        <span className="text-slate-600">•</span>
+                        <span className="text-xs font-black text-purple-400">
+                          {build.rarity}
+                        </span>
+                        <span className="text-slate-600">•</span>
+                        <span className="text-xs font-bold text-amber-400 flex items-center gap-1">
+                          <Sparkles className="w-3 h-3" /> {build.luckScore}/100
+                        </span>
+                      </div>
 
-                    <p className="text-xs text-slate-400 mt-0.5">
-                      {build.cpu.name} + {build.gpu.name}
-                    </p>
+                      <h3 className="text-sm font-black text-white group-hover:text-purple-300 transition-colors truncate">
+                        {build.name}
+                      </h3>
+
+                      <p className="text-[11px] text-slate-400 mt-0.5 truncate">
+                        {build.cpu.name} • {build.gpu.name}
+                      </p>
+                    </div>
                   </div>
 
-                  <div className="flex items-center justify-between sm:justify-end gap-3 pt-2 sm:pt-0 border-t sm:border-t-0 border-white/5">
-                    <div className="text-sm sm:text-base font-black text-emerald-400">
+                  <div className="flex items-center justify-between sm:justify-end gap-3 pt-2 sm:pt-0 border-t sm:border-t-0 border-white/5 shrink-0">
+                    <div className="text-sm sm:text-base font-black text-emerald-400 font-mono">
                       ฿{build.totalPrice.toLocaleString()}
                     </div>
 
@@ -111,7 +129,7 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
                         onSelectBuild(build);
                         onClose();
                       }}
-                      className="px-3 py-1.5 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/40 text-xs font-bold flex items-center gap-1 transition-all"
+                      className="px-3.5 py-1.5 rounded-xl bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/40 text-xs font-bold flex items-center gap-1.5 transition-all"
                       title="โหลด Build นี้ขึ้นมาแสดง"
                     >
                       <RotateCcw className="w-3 h-3" />
@@ -126,7 +144,7 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
 
         {/* Footer */}
         {historyBuilds.length > 0 && (
-          <div className="pt-4 border-t border-white/10 flex items-center justify-between shrink-0">
+          <div className="pt-3 border-t border-white/10 flex items-center justify-between shrink-0">
             <button
               onClick={() => {
                 playClickSound();
@@ -136,14 +154,14 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
               }}
               className="text-xs text-rose-400 hover:underline font-semibold"
             >
-              ล้างประวัติทั้งหมด (Clear History)
+              ล้างประวัติทั้งหมด
             </button>
             <button
               onClick={() => {
                 playClickSound();
                 onClose();
               }}
-              className="px-5 py-2 rounded-xl bg-slate-800 text-slate-200 text-xs font-bold"
+              className="px-5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition-colors"
             >
               ปิด
             </button>

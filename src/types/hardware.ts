@@ -31,6 +31,12 @@ export interface HardwareItem {
   badge?: string;
   image_url?: string;
   status?: "active" | "disabled";
+  model?: string;
+  description?: string;
+  power_consumption?: string;
+  compatibility?: string;
+  product_url?: string;
+  active?: boolean;
 }
 
 export type UsageType =

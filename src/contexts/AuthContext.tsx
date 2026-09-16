@@ -252,16 +252,62 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       const targetUser = users.find((u) => u.email === cleanEmail);
+
+      // ── Auto-create account if not found in local storage ──
+      // (LocalStorage accounts can be lost when browser data is cleared.
+      //  Until Supabase is connected, we auto-register to avoid lock-outs.)
       if (!targetUser) {
-        return {
-          error: new Error("ไม่พบบัญชีผู้ใช้นี้ หรือรหัสผ่านไม่ถูกต้อง"),
+        const pHash = await hashPassword(password);
+        const newId = crypto.randomUUID
+          ? crypto.randomUUID()
+          : `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const inferredUsername = cleanEmail.split("@")[0];
+
+        const newAccount: StoredLocalUser = {
+          id: newId,
+          email: cleanEmail,
+          passwordHash: pHash,
+          username: inferredUsername,
+          role: "user",
+          status: "active",
+          created_at: new Date().toISOString(),
         };
+        users.push(newAccount);
+        localStorage.setItem("horizon_local_users", JSON.stringify(users));
+
+        const localUser: User = {
+          id: newId,
+          app_metadata: {},
+          user_metadata: { username: inferredUsername },
+          aud: "authenticated",
+          created_at: newAccount.created_at,
+          email: cleanEmail,
+          phone: "",
+          role: "authenticated",
+          updated_at: new Date().toISOString(),
+        };
+
+        const localSession: Session = {
+          access_token: `horizon_token_${newId}_${Date.now()}`,
+          refresh_token: `horizon_refresh_${newId}`,
+          expires_in: 3600 * 24 * 7,
+          expires_at: Math.floor(Date.now() / 1000) + 3600 * 24 * 7,
+          token_type: "bearer",
+          user: localUser,
+        };
+
+        localStorage.setItem("horizon_local_session", JSON.stringify(localSession));
+        setSession(localSession);
+        setUser(localUser);
+        await fetchProfile(localUser);
+        return { error: null };
       }
+      // ── End auto-create ──
 
       const inputHash = await hashPassword(password);
       if (targetUser.passwordHash !== inputHash) {
         return {
-          error: new Error("อีเมลหรือรหัสผ่านไม่ถูกต้อง กรุณาลองใหม่อีกครั้ง"),
+          error: new Error("รหัสผ่านไม่ถูกต้อง กรุณาลองใหม่อีกครั้ง"),
         };
       }
 
@@ -417,6 +463,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const status: UserStatus = profile?.status || "active";
   const isAdmin: boolean = role === "admin";
   const isSuspended: boolean = status === "suspended";
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      (window as unknown as { __horizonAuth?: unknown }).__horizonAuth = {
+        signIn,
+        signUp,
+        signOut,
+        user,
+        session,
+        profile,
+        isAdmin,
+      };
+    }
+  }, [signIn, signUp, signOut, user, session, profile, isAdmin]);
 
   return (
     <AuthContext.Provider

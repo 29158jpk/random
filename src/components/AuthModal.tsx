@@ -124,10 +124,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccessMessage }) => {
       if (isLogin) {
         const { error } = await signIn(email, password);
         if (error) {
+          const msg = error.message;
           setErrorMessage(
-            error.message.includes("Invalid login credentials")
-              ? "อีเมลหรือรหัสผ่านไม่ถูกต้อง กรุณาลองใหม่อีกครั้ง"
-              : error.message
+            msg.includes("Invalid login credentials")
+              ? "รหัสผ่านไม่ถูกต้อง กรุณาลองใหม่ หรือลองใช้รหัสผ่านที่ตั้งไว้ตอนสมัคร"
+              : msg.includes("รหัสผ่านไม่ถูกต้อง")
+              ? "🔑 " + msg
+              : msg
           );
         } else {
           closeAuthModal();

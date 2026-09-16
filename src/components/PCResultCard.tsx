@@ -3,9 +3,11 @@
 import React, { useState } from "react";
 import {
   PCBuild,
+  HardwareItem,
   RarityTier,
   LuckTier,
 } from "@/types/hardware";
+import { getHardwareImageUrl } from "@/lib/hardwareImages";
 import {
   Cpu,
   Eye,
@@ -39,6 +41,7 @@ interface PCResultCardProps {
   onBetterReroll: () => void;
   onCheaperReroll: () => void;
   onToggleSave: () => void;
+  onSelectHardware?: (item: HardwareItem) => void;
 }
 
 const RARITY_STYLES: Record<
@@ -97,6 +100,7 @@ export const PCResultCard: React.FC<PCResultCardProps> = ({
   onBetterReroll,
   onCheaperReroll,
   onToggleSave,
+  onSelectHardware,
 }) => {
   const { isAuthenticated, openAuthModal } = useAuth();
   const [copiedShare, setCopiedShare] = useState(false);
@@ -307,15 +311,31 @@ ${build.specialBuild ? `🔥 ${build.specialBuild.badge}` : ""}`;
         {parts.map((p) => {
           const Icon = p.icon;
           const isCopied = copiedPartId === p.item.id;
+          const img = getHardwareImageUrl(p.item);
           return (
             <div
               key={p.label}
-              onClick={() => copyPartName(p.item.name, p.item.id)}
-              className="group glass-panel p-3 sm:p-3.5 rounded-2xl border border-white/5 hover:border-sky-500/40 transition-all flex items-center justify-between gap-3 cursor-pointer"
+              onClick={() => {
+                if (onSelectHardware) {
+                  playClickSound();
+                  onSelectHardware(p.item);
+                }
+              }}
+              className="group glass-panel p-3 sm:p-3.5 rounded-2xl border border-white/5 hover:border-sky-500/40 transition-all flex items-center justify-between gap-3 cursor-pointer hover:scale-[1.01]"
             >
               <div className="flex items-center gap-3 min-w-0">
-                <div className="w-9 h-9 rounded-xl bg-slate-800/80 border border-white/10 flex items-center justify-center text-slate-300 group-hover:text-sky-400 group-hover:border-sky-500/30 transition-colors shrink-0">
-                  <Icon className="w-4 h-4" />
+                <div className="w-12 h-12 rounded-xl bg-slate-800/90 border border-white/10 flex items-center justify-center overflow-hidden shrink-0 group-hover:border-sky-500/40 transition-colors p-1">
+                  <img
+                    src={img}
+                    alt={p.item.name}
+                    className="max-h-full max-w-full object-contain"
+                    onError={(e) => {
+                      (e.currentTarget as HTMLImageElement).src = getHardwareImageUrl({
+                        category: p.item.category,
+                        name: p.item.name,
+                      });
+                    }}
+                  />
                 </div>
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
@@ -332,7 +352,7 @@ ${build.specialBuild ? `🔥 ${build.specialBuild.badge}` : ""}`;
                     {p.item.name}
                   </div>
                   <div className="text-[11px] text-slate-400 truncate">
-                    {p.item.specs}
+                    {p.item.specs || p.item.brand}
                   </div>
                 </div>
               </div>
@@ -346,13 +366,21 @@ ${build.specialBuild ? `🔥 ${build.specialBuild.badge}` : ""}`;
                     Tier {p.item.performanceTier}/10
                   </div>
                 </div>
-                <div className="text-slate-500 group-hover:text-sky-400 transition-colors">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    copyPartName(p.item.name, p.item.id);
+                  }}
+                  className="p-1 rounded text-slate-500 hover:text-sky-400 transition-colors"
+                  title="Copy Name"
+                >
                   {isCopied ? (
                     <Check className="w-4 h-4 text-emerald-400" />
                   ) : (
-                    <Copy className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity" />
+                    <Copy className="w-4 h-4 opacity-40 hover:opacity-100" />
                   )}
-                </div>
+                </button>
               </div>
             </div>
           );
