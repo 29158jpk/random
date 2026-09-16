@@ -95,8 +95,13 @@ create table if not exists public.hardware (
   form_factor text,
   image_url text,
   specs text,
-  badge text,
+  model text,
+  description text,
+  power_consumption text,
+  compatibility text,
+  product_url text,
   status text default 'active' check (status in ('active', 'disabled')) not null,
+  active boolean default true not null,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null,
   updated_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
@@ -395,3 +400,40 @@ values (
   'Budget Gaming Conqueror'
 )
 on conflict (id) do nothing;
+
+-- ==============================================================================
+-- 8. SUPABASE STORAGE: HARDWARE IMAGES BUCKET & POLICIES
+-- ==============================================================================
+insert into storage.buckets (id, name, public)
+values ('hardware-images', 'hardware-images', true)
+on conflict (id) do update set public = true;
+
+drop policy if exists "Public can view hardware images" on storage.objects;
+create policy "Public can view hardware images"
+  on storage.objects for select
+  using (bucket_id = 'hardware-images');
+
+drop policy if exists "Admins can upload hardware images" on storage.objects;
+create policy "Admins can upload hardware images"
+  on storage.objects for insert
+  with check (
+    bucket_id = 'hardware-images' and
+    (public.is_admin() or auth.role() = 'authenticated')
+  );
+
+drop policy if exists "Admins can update hardware images" on storage.objects;
+create policy "Admins can update hardware images"
+  on storage.objects for update
+  using (
+    bucket_id = 'hardware-images' and
+    (public.is_admin() or auth.role() = 'authenticated')
+  );
+
+drop policy if exists "Admins can delete hardware images" on storage.objects;
+create policy "Admins can delete hardware images"
+  on storage.objects for delete
+  using (
+    bucket_id = 'hardware-images' and
+    (public.is_admin() or auth.role() = 'authenticated')
+  );
+

@@ -31,6 +31,9 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
 }) => {
   const { isAuthenticated } = useAuth();
   const [bannerImgError, setBannerImgError] = useState(false);
+  const [card1Error, setCard1Error] = useState(false);
+  const [card2Error, setCard2Error] = useState(false);
+  const [card3Error, setCard3Error] = useState(false);
 
   const handleClickRandom = () => {
     playClickSound();
@@ -73,7 +76,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
         <div className="absolute bottom-8 right-1/3 w-3 h-3 rounded-full bg-purple-400 blur-xs animate-pulse" />
         <div className="absolute top-1/3 right-1/4 w-2.5 h-2.5 rounded-full bg-sky-300 blur-xs animate-ping" />
 
-        {/* Center Branding (Unwanted text lines removed) */}
+        {/* Center Branding */}
         <div className="relative z-10 text-center px-4 max-w-3xl flex flex-col items-center justify-center">
           
           {/* Huge Slanted 3D Gaming Logo */}
@@ -119,13 +122,22 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
           <div className="absolute -right-8 -top-8 w-28 h-28 bg-cyan-500/15 rounded-full blur-2xl pointer-events-none" />
           
           {/* Card Graphic */}
-          <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl overflow-hidden shrink-0 border border-cyan-500/30 relative bg-slate-900 shadow-inner">
-            <img
-              src="/images/card-random.jpg"
-              alt="สุ่มสเปกคอมพิวเตอร์"
-              loading="eager"
-              className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-            />
+          <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl overflow-hidden shrink-0 border border-cyan-500/30 relative bg-slate-900 shadow-inner flex items-center justify-center">
+            {!card1Error ? (
+              <img
+                src="/images/card-random.jpg"
+                alt="สุ่มสเปกคอมพิวเตอร์"
+                loading="eager"
+                className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                onError={() => setCard1Error(true)}
+              />
+            ) : (
+              <div className="w-full h-full bg-gradient-to-br from-cyan-900 via-slate-950 to-sky-900 p-3 flex flex-col items-center justify-center text-cyan-300 relative group-hover:scale-110 transition-transform duration-500">
+                <div className="absolute inset-0 bg-[radial-gradient(#38bdf8_1px,transparent_1px)] [background-size:12px_12px] opacity-30" />
+                <Dices className="w-10 h-10 text-cyan-400 drop-shadow-[0_0_12px_rgba(56,189,248,0.8)] mb-1" />
+                <span className="text-[10px] font-black uppercase text-cyan-200 tracking-wider">RANDOM PC</span>
+              </div>
+            )}
           </div>
 
           {/* Card Details & Action Button */}
@@ -164,13 +176,22 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
           <div className="absolute -right-8 -top-8 w-28 h-28 bg-amber-500/15 rounded-full blur-2xl pointer-events-none" />
 
           {/* Card Graphic */}
-          <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl overflow-hidden shrink-0 border border-amber-500/30 relative bg-slate-900 shadow-inner">
-            <img
-              src="/images/card-challenge.jpg"
-              alt="ภารกิจประจำวัน Daily Challenge"
-              loading="eager"
-              className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-            />
+          <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl overflow-hidden shrink-0 border border-amber-500/30 relative bg-slate-900 shadow-inner flex items-center justify-center">
+            {!card2Error ? (
+              <img
+                src="/images/card-challenge.jpg"
+                alt="ภารกิจประจำวัน Daily Challenge"
+                loading="eager"
+                className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                onError={() => setCard2Error(true)}
+              />
+            ) : (
+              <div className="w-full h-full bg-gradient-to-br from-amber-950 via-slate-950 to-yellow-900 p-3 flex flex-col items-center justify-center text-amber-300 relative group-hover:scale-110 transition-transform duration-500">
+                <div className="absolute inset-0 bg-[radial-gradient(#f59e0b_1px,transparent_1px)] [background-size:12px_12px] opacity-30" />
+                <Trophy className="w-10 h-10 text-amber-400 drop-shadow-[0_0_12px_rgba(245,158,11,0.8)] mb-1" />
+                <span className="text-[10px] font-black uppercase text-amber-200 tracking-wider">CHALLENGE</span>
+              </div>
+            )}
           </div>
 
           {/* Card Details & Action Button */}
@@ -207,13 +228,22 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
           <div className="absolute -right-8 -top-8 w-28 h-28 bg-purple-500/15 rounded-full blur-2xl pointer-events-none" />
 
           {/* Card Graphic */}
-          <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl overflow-hidden shrink-0 border border-purple-500/30 relative bg-slate-900 shadow-inner">
-            <img
-              src="/images/card-collection.jpg"
-              alt="คลังสเปกและผลงาน"
-              loading="eager"
-              className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-            />
+          <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl overflow-hidden shrink-0 border border-purple-500/30 relative bg-slate-900 shadow-inner flex items-center justify-center">
+            {!card3Error ? (
+              <img
+                src="/images/card-collection.jpg"
+                alt="คลังสเปกและผลงาน"
+                loading="eager"
+                className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                onError={() => setCard3Error(true)}
+              />
+            ) : (
+              <div className="w-full h-full bg-gradient-to-br from-purple-950 via-slate-950 to-indigo-900 p-3 flex flex-col items-center justify-center text-purple-300 relative group-hover:scale-110 transition-transform duration-500">
+                <div className="absolute inset-0 bg-[radial-gradient(#a855f7_1px,transparent_1px)] [background-size:12px_12px] opacity-30" />
+                <Gamepad2 className="w-10 h-10 text-purple-400 drop-shadow-[0_0_12px_rgba(168,85,247,0.8)] mb-1" />
+                <span className="text-[10px] font-black uppercase text-purple-200 tracking-wider">COLLECTION</span>
+              </div>
+            )}
           </div>
 
           {/* Card Details & Action Button */}
