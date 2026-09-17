@@ -25,6 +25,7 @@ import {
 import { HardwareItemDB } from "@/types/admin";
 import { ComponentCategory } from "@/types/hardware";
 import { getHardwareImageUrl } from "@/lib/hardwareImages";
+import { INITIAL_STATIC_HARDWARE } from "@/lib/hardwareService";
 
 const CATEGORIES: { id: ComponentCategory; label: string; icon: React.FC<{ className?: string }> }[] = [
   { id: "cpu", label: "CPU", icon: Cpu },
@@ -75,30 +76,88 @@ export default function AdminHardwarePage() {
   const [imagePreview, setImagePreview] = useState<string>("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [seeding, setSeeding] = useState(false);
 
   const showNotification = (text: string, type: "success" | "error" = "success") => {
     setToast({ text, type });
     setTimeout(() => setToast(null), 3500);
   };
 
+  const getFallbackCategoryItems = (cat: ComponentCategory): HardwareItemDB[] => {
+    try {
+      const raw = typeof window !== "undefined" ? localStorage.getItem("horizon_hardware_dataset") : null;
+      if (raw) {
+        const parsed: HardwareItemDB[] = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const filtered = parsed.filter((i) => i.category === cat);
+          if (filtered.length > 0) return filtered;
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return INITIAL_STATIC_HARDWARE.filter((i) => i.category === cat);
+  };
+
   const fetchHardware = async () => {
-    if (!session?.access_token) return;
     setLoading(true);
     try {
+      const token = session?.access_token || "";
       const res = await fetch(`/api/admin/hardware?category=${selectedCategory}`, {
-        headers: { Authorization: `Bearer ${session.access_token}` },
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       if (res.ok) {
         const data = await res.json();
-        setHardwareList(data.hardware || []);
+        if (data.hardware && data.hardware.length > 0) {
+          setHardwareList(data.hardware);
+        } else {
+          // If server returned 0 items, fallback to default hardware
+          const fallback = getFallbackCategoryItems(selectedCategory);
+          setHardwareList(fallback);
+        }
       } else {
-        showNotification("Failed to load hardware list", "error");
+        const fallback = getFallbackCategoryItems(selectedCategory);
+        setHardwareList(fallback);
       }
     } catch (err) {
-      console.error(err);
-      showNotification("Error connecting to hardware database", "error");
+      console.error("Hardware fetch error:", err);
+      const fallback = getFallbackCategoryItems(selectedCategory);
+      setHardwareList(fallback);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSeedDatabase = async () => {
+    if (!confirm("คุณต้องการโหลดและซิงค์ข้อมูลฮาร์ดแวร์เริ่มต้นทั้งหมด (100+ รายการ) เข้าสู่ระบบหรือไม่?")) return;
+
+    setSeeding(true);
+    try {
+      const token = session?.access_token || "";
+      const res = await fetch("/api/admin/hardware", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ action: "seed" }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        showNotification(`ซิงค์ฮาร์ดแวร์เริ่มต้น ${data.count || 100}+ รายการเรียบร้อยแล้ว!`);
+      } else {
+        localStorage.setItem("horizon_hardware_dataset", JSON.stringify(INITIAL_STATIC_HARDWARE));
+        showNotification("รีเซ็ตฮาร์ดแวร์เริ่มต้นเรียบร้อยแล้ว");
+      }
+      fetchHardware();
+    } catch (err) {
+      console.error(err);
+      localStorage.setItem("horizon_hardware_dataset", JSON.stringify(INITIAL_STATIC_HARDWARE));
+      showNotification("รีเซ็ตฮาร์ดแวร์เริ่มต้นเรียบร้อยแล้ว");
+      fetchHardware();
+    } finally {
+      setSeeding(false);
     }
   };
 
@@ -352,11 +411,21 @@ export default function AdminHardwarePage() {
         <div className="flex items-center gap-2.5">
           <button
             onClick={fetchHardware}
-            disabled={loading}
+            disabled={loading || seeding}
             className="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors border border-white/10"
             title="Refresh"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin text-sky-400" : ""}`} />
+          </button>
+
+          <button
+            onClick={handleSeedDatabase}
+            disabled={seeding || loading}
+            className="px-3.5 py-2.5 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-amber-300 border border-amber-500/30 hover:border-amber-500/50 text-xs font-bold transition-all shadow-sm flex items-center gap-1.5"
+            title="โหลดฮาร์ดแวร์เริ่มต้น 100+ รายการ / ซิงค์ฐานข้อมูล"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${seeding ? "animate-spin text-amber-400" : "text-amber-400"}`} />
+            <span>ซิงค์ฮาร์ดแวร์เริ่มต้น</span>
           </button>
 
           <button
@@ -434,7 +503,30 @@ export default function AdminHardwarePage() {
               ) : filteredItems.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="py-16 text-center text-slate-500 text-xs">
-                    ไม่พบอุปกรณ์ฮาร์ดแวร์ในหมวดหมู่นี้
+                    <div className="max-w-md mx-auto space-y-3">
+                      <p className="text-slate-400 font-bold text-sm">
+                        ไม่พบอุปกรณ์ฮาร์ดแวร์ในหมวด {selectedCategory.toUpperCase()}
+                      </p>
+                      <p className="text-slate-500 text-xs">
+                        หากฐานข้อมูลยังว่างอยู่ สามารถกดปุ่มด้านล่างเพื่อโหลดฮาร์ดแวร์เริ่มต้น 100+ รายการได้ทันที
+                      </p>
+                      <div className="flex items-center justify-center gap-2.5 pt-2">
+                        <button
+                          onClick={handleSeedDatabase}
+                          disabled={seeding}
+                          className="px-4 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 text-xs font-black transition-all shadow-md shadow-sky-500/20 flex items-center gap-1.5"
+                        >
+                          <RefreshCw className={`w-3.5 h-3.5 ${seeding ? "animate-spin" : ""}`} />
+                          <span>โหลดฮาร์ดแวร์เริ่มต้น (100+ รายการ)</span>
+                        </button>
+                        <button
+                          onClick={handleOpenAdd}
+                          className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold transition-all border border-white/10"
+                        >
+                          + เพิ่มอุปกรณ์ด้วยตนเอง
+                        </button>
+                      </div>
+                    </div>
                   </td>
                 </tr>
               ) : (

@@ -126,6 +126,10 @@ export async function verifyAdminToken(authHeader: string | null): Promise<Verif
 }
 
 export function getSupabaseAdminClient(authHeader?: string | null) {
+  if (!isSupabaseConfigured()) {
+    return null;
+  }
+
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";

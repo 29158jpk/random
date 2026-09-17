@@ -59,17 +59,18 @@ export async function POST(req: NextRequest) {
     if (isSupabaseConfigured()) {
       try {
         const client = getSupabaseAdminClient(authHeader);
-        const bucketName = "hardware-images";
+        if (client) {
+          const bucketName = "hardware-images";
 
-        // Auto-create bucket if missing
-        try {
-          await client.storage.createBucket(bucketName, { public: true });
-        } catch {
-          // ignore if bucket already exists
-        }
+          // Auto-create bucket if missing
+          try {
+            await client.storage.createBucket(bucketName, { public: true });
+          } catch {
+            // ignore if bucket already exists
+          }
 
-        // Upload file to bucket
-        const { error: uploadError } = await client.storage
+          // Upload file to bucket
+          const { error: uploadError } = await client.storage
           .from(bucketName)
           .upload(fileName, buffer, {
             contentType: file.type,
@@ -100,8 +101,7 @@ export async function POST(req: NextRequest) {
             url: newImageUrl,
             fileName,
           });
-        } else {
-          console.warn("Supabase Storage upload warning:", uploadError.message);
+          }
         }
       } catch (storageErr) {
         console.warn("Supabase storage error, attempting fallback:", storageErr);

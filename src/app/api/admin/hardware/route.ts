@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyAdminToken, getSupabaseAdminClient } from "@/lib/supabase/server";
-import { getAllHardware, addHardwareItem, updateHardwareItem, deleteHardwareItem } from "@/lib/hardwareService";
+import {
+  getAllHardware,
+  addHardwareItem,
+  updateHardwareItem,
+  deleteHardwareItem,
+  seedInitialHardware,
+} from "@/lib/hardwareService";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
 import { HardwareItemDB } from "@/types/admin";
 
@@ -40,6 +46,20 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
+
+    // Check if request is to seed or reset database
+    if (body?.action === "seed" || body?.action === "reset") {
+      const adminClient = getSupabaseAdminClient(authHeader);
+      const result = await seedInitialHardware(adminClient);
+      const refreshed = await getAllHardware(true, adminClient);
+      return NextResponse.json({
+        success: true,
+        message: `Seeded ${result.count} hardware items successfully`,
+        count: result.count,
+        hardware: refreshed,
+      });
+    }
+
     const { item } = body as { item: Omit<HardwareItemDB, "created_at" | "updated_at"> };
 
     if (!item || !item.name || !item.category || !item.price) {
@@ -47,13 +67,16 @@ export async function POST(req: NextRequest) {
     }
 
     const adminClient = getSupabaseAdminClient(authHeader);
-    const newItem = await addHardwareItem({
-      ...item,
-      id: item.id || `hw-${item.category}-${Date.now()}`,
-      status: item.status || "active",
-    }, adminClient);
+    const newItem = await addHardwareItem(
+      {
+        ...item,
+        id: item.id || `hw-${item.category}-${Date.now()}`,
+        status: item.status || "active",
+      },
+      adminClient
+    );
 
-    if (isSupabaseConfigured()) {
+    if (isSupabaseConfigured() && adminClient) {
       try {
         await adminClient.from("admin_logs").insert({
           admin_id: user.id,
@@ -93,7 +116,7 @@ export async function PUT(req: NextRequest) {
     const adminClient = getSupabaseAdminClient(authHeader);
     const updated = await updateHardwareItem(id, updates, adminClient);
 
-    if (isSupabaseConfigured()) {
+    if (isSupabaseConfigured() && adminClient) {
       try {
         let actionDesc = `Admin updated hardware ${id}`;
         if (updates.status) {
@@ -140,7 +163,7 @@ export async function DELETE(req: NextRequest) {
     const adminClient = getSupabaseAdminClient(authHeader);
     await deleteHardwareItem(id, adminClient);
 
-    if (isSupabaseConfigured()) {
+    if (isSupabaseConfigured() && adminClient) {
       try {
         await adminClient.from("admin_logs").insert({
           admin_id: user.id,

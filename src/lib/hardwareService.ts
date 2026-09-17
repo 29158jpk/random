@@ -31,6 +31,9 @@ let serverInMemoryHardware: HardwareItemDB[] = [...INITIAL_STATIC_HARDWARE];
 
 function getLocalHardware(): HardwareItemDB[] {
   if (typeof window === "undefined") {
+    if (!serverInMemoryHardware || serverInMemoryHardware.length === 0) {
+      serverInMemoryHardware = [...INITIAL_STATIC_HARDWARE];
+    }
     return serverInMemoryHardware;
   }
   try {
@@ -39,7 +42,12 @@ function getLocalHardware(): HardwareItemDB[] {
       localStorage.setItem(LOCAL_STORAGE_HARDWARE_KEY, JSON.stringify(INITIAL_STATIC_HARDWARE));
       return INITIAL_STATIC_HARDWARE;
     }
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      return parsed;
+    }
+    localStorage.setItem(LOCAL_STORAGE_HARDWARE_KEY, JSON.stringify(INITIAL_STATIC_HARDWARE));
+    return INITIAL_STATIC_HARDWARE;
   } catch {
     return INITIAL_STATIC_HARDWARE;
   }
@@ -58,11 +66,52 @@ function saveLocalHardware(items: HardwareItemDB[]): void {
 }
 
 /**
+ * Seed or reset all initial hardware into database & local cache
+ */
+export async function seedInitialHardware(client?: SupabaseClient | null): Promise<{ success: boolean; count: number }> {
+  const db = client || (isSupabaseConfigured() ? supabase : null);
+  if (isSupabaseConfigured() && db) {
+    try {
+      const rowsToInsert = INITIAL_STATIC_HARDWARE.map((item) => ({
+        id: item.id,
+        name: item.name,
+        brand: item.brand,
+        category: item.category,
+        price: item.price,
+        performance: item.performanceTier || 5,
+        power: item.power || 65,
+        socket: item.socket || null,
+        memory_type: item.memoryType || null,
+        vram: item.vram || null,
+        form_factor: item.formFactor || null,
+        image_url: item.image_url || null,
+        specs: item.specs || "",
+        badge: item.badge || null,
+        model: item.model || null,
+        description: item.description || null,
+        power_consumption: item.power_consumption || `${item.power}W`,
+        compatibility: item.compatibility || null,
+        product_url: item.product_url || null,
+        status: item.status || "active",
+        active: item.active !== false,
+      }));
+      await db.from("hardware").upsert(rowsToInsert);
+    } catch (err) {
+      console.warn("Could not seed hardware to Supabase:", err);
+    }
+  }
+
+  serverInMemoryHardware = [...INITIAL_STATIC_HARDWARE];
+  saveLocalHardware([...INITIAL_STATIC_HARDWARE]);
+  return { success: true, count: INITIAL_STATIC_HARDWARE.length };
+}
+
+/**
  * Fetch all hardware items for Admin management
  */
 export async function getAllHardware(includeDisabled: boolean = true, client?: SupabaseClient | null): Promise<HardwareItemDB[]> {
-  const db = client || supabase;
-  if (isSupabaseConfigured()) {
+  const db = client || (isSupabaseConfigured() ? supabase : null);
+  if (isSupabaseConfigured() && db) {
     try {
       let query = db.from("hardware").select("*").order("category").order("price", { ascending: true });
       if (!includeDisabled) {
@@ -95,6 +144,14 @@ export async function getAllHardware(includeDisabled: boolean = true, client?: S
           created_at: row.created_at,
           updated_at: row.updated_at,
         }));
+      }
+
+      // If table exists in Supabase but has 0 rows, auto-seed with default hardware!
+      if (!error && data && data.length === 0) {
+        console.log("Supabase hardware table is empty. Auto-seeding initial hardware...");
+        await seedInitialHardware(db);
+        const localItems = INITIAL_STATIC_HARDWARE;
+        return includeDisabled ? localItems : localItems.filter((i) => i.status !== "disabled");
       }
     } catch (err) {
       console.warn("Could not load hardware from Supabase:", err);

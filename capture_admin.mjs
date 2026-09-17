@@ -3,7 +3,7 @@ import fs from "fs";
 import path from "path";
 
 const CHROME_PATH = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
-const ARTIFACTS_DIR = "C:/Users/Horizon/.gemini/antigravity-ide/brain/3e42fd0a-3e82-42a0-8f51-f57040fdbced";
+const ARTIFACTS_DIR = "C:/Users/Horizon/.gemini/antigravity-ide/brain/5a418951-6e6e-4662-a813-a4dd57a44f63";
 const TEMP_USER_DATA = "C:/Users/Horizon/AppData/Local/Temp/chrome_admin_shot3";
 
 async function sleep(ms) {
@@ -136,6 +136,32 @@ async function run() {
     const resModal = await send("Page.captureScreenshot", { format: "png" });
     fs.writeFileSync(path.join(ARTIFACTS_DIR, "admin_hardware_modal.png"), Buffer.from(resModal.data, "base64"));
     console.log("Saved admin_hardware_modal.png!");
+
+    // Close Add modal
+    await send("Runtime.evaluate", {
+      expression: `
+        (() => {
+          const closeBtn = document.querySelector('button.p-2.rounded-xl') || Array.from(document.querySelectorAll('button')).find(b => b.innerHTML.includes('lucide-x') || b.title === 'Close');
+          if (closeBtn) closeBtn.click();
+        })()
+      `,
+    });
+    await sleep(600);
+
+    // 4. Click 'Edit' on the first hardware item (Ryzen 5 3600)
+    await send("Runtime.evaluate", {
+      expression: `
+        (() => {
+          const editBtn = document.querySelector('button[title=\"Edit\"]');
+          if (editBtn) editBtn.click();
+        })()
+      `,
+    });
+    await sleep(1000);
+
+    const resEditModal = await send("Page.captureScreenshot", { format: "png" });
+    fs.writeFileSync(path.join(ARTIFACTS_DIR, "admin_hardware_edit_modal.png"), Buffer.from(resEditModal.data, "base64"));
+    console.log("Saved admin_hardware_edit_modal.png!");
 
     ws.close();
   } catch (err) {
